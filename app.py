@@ -77,7 +77,7 @@ Qvalue = 1000.
 
 if select_event == 'Manually':
     sl_z = st.sidebar.number_input('Proton number', min_value=1, max_value=120, step=1, help="Set the proton number of the initial state")
-    sl_a = st.sidebar.number_input('Mass number', min_value=sl_z, max_value=120, step=1, value=int(stableA(sl_z)), help="Set the mass number of the initial state")
+    sl_a = st.sidebar.number_input('Mass number', min_value=sl_z, max_value=120, step=1, value=int(fu.stableA(sl_z)), help="Set the mass number of the initial state")
     sl_r = st.sidebar.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(sl_z, sl_a), help="Set the rms nuclear radius in fm")
 
     z = int(sl_z)

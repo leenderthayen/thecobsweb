@@ -3,8 +3,10 @@ import csv
 import numpy as np
 import pandas as pd
 import re
-import thecobs.spectral_functions as sf
-import thecobs.constants as constants
+import thecobs.SpectralFunctions as sf
+from thecobs.Constants import *
+import thecobs.Functions as fu
+import thecobs.Screening
 
 from bokeh.models import DataRange1d
 from bokeh.plotting import figure
@@ -26,27 +28,18 @@ st.markdown("""
 st.sidebar.markdown("## Set the decay parameters")
 
 select_event = st.sidebar.selectbox('How do you want to find data?',
-                                    ['Manually', 'Database'])
+                                    ['Database', 'Manually'])
 
-def approxNuclRadius(Z, N):
-    '''
-    Return nuclear charge radius in fm.
-    Taken from Chinese Physics C Vol. 46, No. 7 (2022) 074105'''
-    if N > 0:
-        rN = 1.629
-        b = 0.451
-        return rN*(1-b*(N-Z)/N)*N**(1/3)*(3/5)**0.5
+def approxNuclRadius(Z, A, Elton=False):
+    N = A-Z
+    R = 0
+    if Elton:
+        R = max(1, fu.getEltonNuclearRadius(A))
     else:
         rA = 1.282
         b = 0.342
-        return rA*(1-b*(N-Z)/(Z+N))*(Z+N)**(1/3)*(3/5)**0.5
-
-def stableA(Z):
-    aC = 0.71 # MeV
-    aA = 23.7 # MeV
-    alpha = aC/4/aA
-
-    return 2*Z*(1+alpha*(2*Z)**(2/3))
+        R = rA*(1-b*(N-Z)/A)*A**(1/3)
+    return R*(3/5)**0.5
 
 @st.cache
 def downloadAME():
@@ -70,67 +63,85 @@ def downloadAME():
             atomicMassString = line[106:121]
             atomicMassString = atomicMassString[:3] + atomicMassString[4:]
             atomicMassString = atomicMassString.replace('#', '.')
-            atomicMass = float(atomicMassString)*1e-6*constants.U_MASS_C2
+            atomicMass = float(atomicMassString)*1e-6*AMU_MASS_KEV
             data.append([n, z, a, name, atomicMass])
     return pd.DataFrame(data, columns=names)
 
-beta_type = st.sidebar.selectbox('Type of beta transition',
+decay_type = st.sidebar.selectbox('Type of beta transition',
                                     ['Beta-', 'Beta+'])
+
+beta_type = st.sidebar.selectbox('Type of allowed transition',
+                                    ['Gamow-Teller', 'Fermi'])
 
 Qvalue = 1000.
 
 if select_event == 'Manually':
     sl_z = st.sidebar.number_input('Proton number', min_value=1, max_value=120, step=1, help="Set the proton number of the initial state")
     sl_a = st.sidebar.number_input('Mass number', min_value=sl_z, max_value=120, step=1, value=int(stableA(sl_z)), help="Set the mass number of the initial state")
-    sl_r = st.sidebar.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(sl_z,sl_a-sl_z), help="Set the rms nuclear radius in fm")
+    sl_r = st.sidebar.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(sl_z, sl_a), help="Set the rms nuclear radius in fm")
 
     z = int(sl_z)
     a = int(sl_a)
-    r = float(sl_r)*(5./3.)**0.5*1e-15/constants.NATURALLENGTH
+    r = float(sl_r)*(5/3)**0.5*1e-15/NATURAL_LENGTH
 
 else:
     dfAME = downloadAME()
 
-    str_iso = st.sidebar.text_input('Isotope', value='6He')
+    str_iso = st.sidebar.text_input('Isotope', value='1N')
 
     m = re.search(r'\d+', str_iso)
     if m:
         a = int(m.group(0))
-        z = constants.atoms.index(str(str_iso).replace(m.group(0), '').strip())
+        z = atoms.index(str(str_iso).replace(m.group(0), '').strip())
     else:
         st.error('Not a valid isotope name. Expecting something like 6He or 45Ca.')
 
-    sl_r = st.sidebar.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(z,a-z), help="Set the rms nuclear radius in fm")
+    sl_r = st.sidebar.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(z, a), help="Set the rms nuclear radius in fm")
 
-    r = sl_r*(5./3.)**0.5*1e-15/constants.NATURALLENGTH
+    r = sl_r*(5./3.)**0.5*1e-15/NATURAL_LENGTH
 
-    if beta_type == 'Beta-':
+    if decay_type == 'Beta-':
         Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z+1)) & (dfAME['A'] == a), 'mass'].values[0]
     else:
-        Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z-1)) & (dfAME['A'] == a), 'mass'].values[0]-2*constants.ELECTRON_MASS_C2
+        Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z-1)) & (dfAME['A'] == a), 'mass'].values[0]-2*ELECTRON_MASS_KEV
 
 sl_e0 = st.sidebar.number_input('Endpoint energy', min_value=0., max_value=20e3, value=Qvalue, step=1., help="Set the endpoint energy in keV")
 sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=1., step=1., help="Set the step energy in keV")
 
 @st.cache
-def calculateSpectrum(Z, A, R, E0, E_step):
-    E = np.arange(0, E0, E_step)
+def calculateSpectrum(Z, A, R, E0, E_step, beta_type):
+    E = np.arange(0.1, E0, E_step)
 
-    W0 = 1 + E0/constants.ELECTRON_MASS_C2
+    W0 = 1 + E0/ELECTRON_MASS_KEV
 
-    W = 1 + E/constants.ELECTRON_MASS_C2
+    W = 1 + E/ELECTRON_MASS_KEV
 
     ph = sf.phase_space(W, W0)
-    f = sf.fermi_function(Z, W, R)
-    l0 = sf.finite_size_L0(Z, W, R)
-    u = sf.finite_size_U_fermi(Z, W)
-    rc = sf.radiative_correction(Z, W, W0, R)
+    f = sf.fermi_function(W, Z, R)
+    l0 = sf.finite_size_L0(W, Z, R)
+    u = sf.finite_size_U_fermi(W, Z)
+    rc = sf.radiative_correction(W, Z, W0, R)
 
-    sp = ph*f*l0*u*rc
+    if beta_type == 'Fermi':
+        rec = sf.recoil_fermi(W, W0, A)
+        recCoul = sf.recoil_Coulomb_fermi(W, Z, W0, A)
+        C = sf.shape_factor_fermi(W, Z, W0, R)
+    elif beta_type == 'Gamow-Teller':
+        rec = sf.recoil_gamow_teller(W, W0, A)
+        recCoul = sf.recoil_Coulomb_gamow_teller(W, Z, W0, A)
+        c = 1
+        b = 5*A*c
+        d = 0
+        L = 0
+        C = sf.shape_factor_gamow_teller(W, Z, W0, R, A, b, c, d, L)
+    l = thecobs.Screening.screening_potential(Z)
+    s = sf.atomic_screening(W, Z, R, l)
 
-    comb = np.stack((E, W, sp, ph, f, l0, u, rc), axis=1)
+    sp = ph*f*l0*u*rc*rec*recCoul*C*s
 
-    df = pd.DataFrame(comb, columns = ['Energy', 'W', 'Spectrum', 'PhaseSpace', 'FermiFunction', 'L0', 'U', 'RadiativeCorrections'])
+    comb = np.stack((E, W, sp, ph, f, l0, rc, C, s, u, rec, recCoul), axis=1)
+
+    df = pd.DataFrame(comb, columns = ['Energy', 'W', 'Spectrum', 'PhaseSpace', 'FermiFunction', 'L0', 'RadiativeCorrections', 'ShapeFactor', 'Screening', 'U', 'Recoil', 'CoulombRecoil'])
 
     return df
 
@@ -146,8 +157,8 @@ Current transition information:
 """)
 
 if sl_e0 > 0:
-    zeff = z if beta_type == 'Beta-' else -z
-    df = calculateSpectrum(zeff, a, r, sl_e0, sl_e_step)
+    zeff = z+1 if decay_type == 'Beta-' else -(z-1)
+    df = calculateSpectrum(zeff, a, r, sl_e0, sl_e_step, beta_type)
 
     st.subheader('Electron spectrum')
 
@@ -178,7 +189,7 @@ if sl_e0 > 0:
         if st.checkbox('Show individual corrections'):
             pcorr = figure(title='Corrections', x_axis_label='Kinetic energy [keV]', y_axis_label='Correction', y_range=DataRange1d(only_visible=True))
             i = 0
-            dfCorr = df[['FermiFunction', 'L0', 'U', 'RadiativeCorrections']]
+            dfCorr = df.loc[:, ~df.columns.isin(['Energy', 'W', 'Spectrum', 'PhaseSpace'])]
             for column in dfCorr:
                 pcorr.line(df['Energy'], df[column], legend_label=column, color=Category10[len(dfCorr.columns)][i], line_width=2)
                 i+=1

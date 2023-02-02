@@ -9,6 +9,9 @@ from bokeh.models import DataRange1d
 from bokeh.plotting import figure
 from bokeh.palettes import Category10
 
+from io import StringIO
+import requests
+
 apptitle = "The cob(s)web"
 
 st.set_page_config(page_title=apptitle, page_icon=":eyeglasses:")
@@ -26,7 +29,30 @@ select_event = st.sidebar.selectbox('How do you want to find data?',
 
 @st.cache
 def downloadAME():
-        pass
+    UMASSC2 = 931.49410242
+    names = ['N', 'Z', 'A', 'name', 'mass']
+    data = []
+    url = 'https://www-nds.iaea.org/amdc/ame2020/mass_1.mas20.txt'
+    r = requests.get(url).content
+    f = StringIO(r.decode('utf-8'))
+    skipLines = 36
+    currentLine = 0
+    for line in f:
+        currentLine += 1
+        if currentLine <= skipLines:
+            continue
+        else:
+            nMinusz = int(line[1:4])
+            n = int(line[4:9])
+            z = int(line[9:14])
+            a = int(line[14:19])
+            name = line[19:23]
+            atomicMassString = line[106:121]
+            atomicMassString = atomicMassString[:3] + atomicMassString[4:]
+            atomicMassString = atomicMassString.replace('#', '.')
+            atomicMass = float(atomicMassString)*1e-6*UMASSC2
+            data.append([n, z, a, name, atomicMass])
+    return pd.DataFrame(data, columns=names)
 
 if select_event == 'Manually':
     beta_type = st.sidebar.selectbox('Type of beta transition',
@@ -43,6 +69,10 @@ if select_event == 'Manually':
     r = float(sl_r)*(5./3.)**0.5*1e-15/constants.NATURALLENGTH
 
 else:
+    dfAME = downloadAME()
+
+    dfAME
+
     str_iso = st.sidebar.text_input('Isotope', placeholder='Ex. 6He')
 
     z = 2

@@ -110,7 +110,7 @@ sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000
 
 @st.cache
 def calculateSpectrum(Z, A, R, E0, E_step, beta_type):
-    E = np.arange(0.1, E0, E_step)
+    E = np.arange(1., E0, E_step)
 
     W0 = 1 + E0/ELECTRON_MASS_KEV
 

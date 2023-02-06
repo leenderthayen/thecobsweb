@@ -15,21 +15,6 @@ from bokeh.palettes import Category10
 from io import StringIO
 import requests
 
-apptitle = "The cob(s)web"
-
-st.set_page_config(page_title=apptitle, page_icon=":eyeglasses:")
-
-st.title("The Cob(s)web")
-
-st.markdown("""
- Calculate beta spectrum shapes with state of the art methods
-""")
-
-st.sidebar.markdown("## Set the decay parameters")
-
-select_event = st.sidebar.selectbox('How do you want to find data?',
-                                    ['Database', 'Manually'])
-
 def approxNuclRadius(Z, A, Elton=False):
     N = A-Z
     R = 0
@@ -67,49 +52,114 @@ def downloadAME():
             data.append([n, z, a, name, atomicMass])
     return pd.DataFrame(data, columns=names)
 
+@st.cache
+def downloadNubase():
+    names = ['Z', 'A', 'halflife', 'halflifeUnc', 'spinParity']
+    unitDict = {'My': 1e6*365.25*24*3600, 'ky': 1e3*365.25*24*3600, 'y': 365.25*24*3600, 'd': 24*3600., 'm': 60., 's': 1., 'ms': 1e-3, 'us': 1e-6, 'ns': 1e-9, 'ps': 1e-12, 'fs': 1e-15, 'as': 1e-18, 'zs': 1e-21, 'ys': 1e-24}
+    data = []
+    url = 'https://www-nds.iaea.org/amdc/ame2020/nubase_4.mas20.txt'
+    r = requests.get(url).content
+    f = StringIO(r.decode('utf-8'))
+    skipLines = 25
+    currentLine = 0
+    for line in f:
+        currentLine += 1
+        if currentLine <= skipLines:
+            continue
+        else:
+            a = int(line[0:3])
+            zi = line[4:8]
+            if zi[-1] != '0':
+                continue
+            z = int(zi[:-1])
+            halflife = line[69:78]
+            halflifeUnit = line[78:80].strip()
+            halflifeUnc = line[81:88]
+            spinParity = line[88:102].split(' ')[0].replace('#', '').replace('*', '')
+            try:
+                halflife = float(halflife)*unitDict[halflifeUnit]
+                halflifeUnc = float(halflifeUnc)*unitDict[halflifeUnit]
+            except:
+                halflife = -1.
+                halflifeUnc = 0.
+
+            data.append([z, a, halflife, halflifeUnc, spinParity])
+    return pd.DataFrame(data, columns=names)
+
+apptitle = "The cob(s)web"
+
+st.set_page_config(page_title=apptitle, page_icon=":eyeglasses:")
+
+st.title("The Cob(s)web")
+
+st.markdown("""
+ Calculate beta spectrum shapes with state of the art methods
+""")
+
+st.sidebar.markdown("## Set the decay parameters")
+
+st.sidebar.markdown("""Pulling data from Atomic Mass Evaluation 2020 and Nubase 2020 [link](https://www-nds.iaea.org/amdc/)
+        """)
+
+str_iso = st.sidebar.text_input('Isotope', value='1N')
+z = 0.
+a = 1.
+
+m = re.search(r'\d+', str_iso)
+if m:
+    a = int(m.group(0))
+    z = atoms.index(str(str_iso).replace(m.group(0), '').strip())
+else:
+    st.error('Not a valid isotope name. Expecting something like 6He or 45Ca.')
+
 decay_type = st.sidebar.selectbox('Type of beta transition',
                                     ['Beta-', 'Beta+'])
 
-beta_type = st.sidebar.selectbox('Type of allowed transition',
-                                    ['Gamow-Teller', 'Fermi'])
-
+halflife = 1.
 Qvalue = 1000.
+dfAME = downloadAME()
+dfNubase = downloadNubase()
 
-if select_event == 'Manually':
-    sl_z = st.sidebar.number_input('Proton number', min_value=1, max_value=120, step=1, help="Set the proton number of the initial state")
-    sl_a = st.sidebar.number_input('Mass number', min_value=sl_z, max_value=120, step=1, value=int(fu.stableA(sl_z)), help="Set the mass number of the initial state")
-    sl_r = st.sidebar.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(sl_z, sl_a), help="Set the rms nuclear radius in fm")
+if decay_type == 'Beta-':
+    Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z+1)) & (dfAME['A'] == a), 'mass'].values[0]
+else:
+    Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z-1)) & (dfAME['A'] == a), 'mass'].values[0]-2*ELECTRON_MASS_KEV
 
-    z = int(sl_z)
-    a = int(sl_a)
+halflife = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'halflife'].values[0]
+
+with st.sidebar.expander("Nuclear data"):
+    z = st.number_input('Proton number', min_value=0, max_value=120, step=1, value=z, help="Set the proton number of the initial state")
+    a = st.number_input('Mass number', min_value=z, max_value=120, step=1, value=a, help="Set the mass number of the initial state")
+    sl_r = st.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(z, a), help="Set the rms nuclear radius in fm")
+    sl_halflife = st.number_input('Partial falflife ($$t_{1/2}^{\\beta}$$)', min_value=0., max_value=1e32, value=halflife, step=1e-3, format='%e', help='Enter the partial halflife of the beta decay in seconds to calculate a log ft value')
+
     r = float(sl_r)*(5/3)**0.5*1e-15/NATURAL_LENGTH
 
-else:
-    dfAME = downloadAME()
-
-    str_iso = st.sidebar.text_input('Isotope', value='1N')
-
-    m = re.search(r'\d+', str_iso)
-    if m:
-        a = int(m.group(0))
-        z = atoms.index(str(str_iso).replace(m.group(0), '').strip())
-    else:
-        st.error('Not a valid isotope name. Expecting something like 6He or 45Ca.')
-
-    sl_r = st.sidebar.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(z, a), help="Set the rms nuclear radius in fm")
-
-    r = sl_r*(5./3.)**0.5*1e-15/NATURAL_LENGTH
-
-    if decay_type == 'Beta-':
-        Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z+1)) & (dfAME['A'] == a), 'mass'].values[0]
-    else:
-        Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z-1)) & (dfAME['A'] == a), 'mass'].values[0]-2*ELECTRON_MASS_KEV
+    str_iso.value = "%d%s" % (a, atoms[z])
 
 sl_e0 = st.sidebar.number_input('Endpoint energy', min_value=0., max_value=20e3, value=Qvalue, step=1., help="Set the endpoint energy in keV")
 sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=1., step=1., help="Set the step energy in keV")
 
+beta_type = st.sidebar.selectbox('Type of allowed transition',
+                                    ['Gamow-Teller', 'Fermi', 'Mixed'])
+
+mixing_ratio = 0.
+if beta_type == 'Mixed':
+    mixing_ratio_sl = st.sidebar.slider('Mixing ratio', -3., 3., -2.22, help='Ratio of Gamow-Teller and Fermi matrix elements for a mixed decay')
+    mixing_ratio = float(mixing_ratio_sl)
+
+bAc = 0.
+dAc = 0.
+Lambda = 0.
+if beta_type == 'Gamow-Teller' or beta_type == 'Mixed':
+    with st.sidebar.expander("Recoil-order matrix elements"):
+        st.write("Specify the values for the recoil-order matrix elements following the notation in Hayen et al. Reviews of Modern Physics 90 (2018) 015008")
+        bAc = st.number_input('b/Ac', min_value=-100., max_value=100.,value=5.0, step=0.1, help='Weak magnetism according to Holstein. Typical values are around 5.')
+        dAc = st.number_input('d/Ac', min_value=-100., max_value=100., value=2., step=0.1, help='Induced tensor according to Holstein. Typical values in {-5, 5}.')
+        Lambda = st.number_input(r'$$\Lambda$$', min_value=-100., max_value=100., value=5., step=0.1, help='Induced pseudoscalar according to Hayen et al. Typical values in {-5, 5}.')
+
 @st.cache
-def calculateSpectrum(Z, A, R, E0, E_step, beta_type):
+def calculateSpectrum(Z, A, R, E0, E_step, beta_type, mixing_ratio=0, bAc=0, dAc=0, Lambda=0):
     E = np.arange(1., E0, E_step)
 
     W0 = 1 + E0/ELECTRON_MASS_KEV
@@ -130,10 +180,25 @@ def calculateSpectrum(Z, A, R, E0, E_step, beta_type):
         rec = sf.recoil_gamow_teller(W, W0, A)
         recCoul = sf.recoil_Coulomb_gamow_teller(W, Z, W0, A)
         c = 1
+        b = bAc*A*c
+        d = dAc*A*c
+        L = Lambda
+        C = sf.shape_factor_gamow_teller(W, Z, W0, R, A, b, c, d, L)
+    elif beta_type == 'Mixed':
+        norm = 1+mixing_ratio**2
+        recF = sf.recoil_fermi(W, W0, A)
+        recCoulF = sf.recoil_Coulomb_fermi(W, Z, W0, A)
+        CF = sf.shape_factor_fermi(W, Z, W0, R)
+        recGT = sf.recoil_gamow_teller(W, W0, A)
+        recCoulGT = sf.recoil_Coulomb_gamow_teller(W, Z, W0, A)
+        c = 1
         b = 5*A*c
         d = 0
         L = 0
-        C = sf.shape_factor_gamow_teller(W, Z, W0, R, A, b, c, d, L)
+        CGT = sf.shape_factor_gamow_teller(W, Z, W0, R, A, b, c, d, L)
+        rec = 1+(recF-1+mixing_ratio**2*(recGT-1))/norm
+        recCoul = 1+(recCoulF-1+mixing_ratio**2*(recCoulGT-1))/norm
+        C = 1+(CF-1 + mixing_ratio**2*(CGT-1))/norm
     l = thecobs.Screening.screening_potential(Z)
     s = sf.atomic_screening(W, Z, R, l)
 
@@ -150,15 +215,25 @@ def convert_df(df):
     # IMPORTANT: Cache the conversion to prevent computation on every rerun
     return df.to_csv(index=False).encode('utf-8')
 
-st.subheader('Transition info')
-
-st.write("""
-Current transition information:
-""")
-
 if sl_e0 > 0:
     zeff = z+1 if decay_type == 'Beta-' else -(z-1)
-    df = calculateSpectrum(zeff, a, r, sl_e0, sl_e_step, beta_type)
+    df = calculateSpectrum(zeff, a, r, sl_e0, sl_e_step, beta_type, mixing_ratio, bAc, dAc, Lambda)
+
+    ftValuePS = np.sum(df['PhaseSpace'])*sl_e_step/ELECTRON_MASS_KEV*halflife
+    ftValueFull = np.sum(df['Spectrum'])*sl_e_step/ELECTRON_MASS_KEV*halflife
+
+    initState_str = "$$^{%d}$$%s" % (a, atoms[z])
+    finalState_str = "$$^{%d}$$%s" % (a, atoms[abs(zeff)])
+
+    st.subheader('Transition info')
+
+    st.write("""
+    Current transition information: %s   &rarr;   %s [$$E_0$$ = %.2f keV]
+
+    Log ft values: 
+    * Only phase space: %.5f
+    * Full calculation: %.5f
+    """ % (initState_str, finalState_str, sl_e0, np.log10(ftValuePS), np.log10(ftValueFull)))
 
     st.subheader('Electron spectrum')
 
@@ -200,4 +275,4 @@ if sl_e0 > 0:
         if st.checkbox('Show raw data'):
             df
 else:
-    st.error("Endpoint energy is less than 0. Can't calculate spectrum.")
+    st.error("Endpoint energy is less than 0. Can't calculate spectrum. Did you mean to change the decay type(beta+/-)?")

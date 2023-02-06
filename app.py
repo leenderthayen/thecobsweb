@@ -135,7 +135,7 @@ with st.sidebar.expander("Nuclear data"):
 
     r = float(sl_r)*(5/3)**0.5*1e-15/NATURAL_LENGTH
 
-    str_iso.value = "%d%s" % (a, atoms[z])
+    #str_iso.value = "%d%s" % (a, atoms[z])
 
 sl_e0 = st.sidebar.number_input('Endpoint energy', min_value=0., max_value=20e3, value=Qvalue, step=1., help="Set the endpoint energy in keV")
 sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=1., step=1., help="Set the step energy in keV")

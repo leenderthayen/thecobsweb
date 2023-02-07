@@ -55,7 +55,7 @@ def downloadAME():
 @st.cache
 def downloadNubase():
     names = ['Z', 'A', 'halflife', 'halflifeUnc', 'spinParity']
-    unitDict = {'My': 1e6*365.25*24*3600, 'ky': 1e3*365.25*24*3600, 'y': 365.25*24*3600, 'd': 24*3600., 'm': 60., 's': 1., 'ms': 1e-3, 'us': 1e-6, 'ns': 1e-9, 'ps': 1e-12, 'fs': 1e-15, 'as': 1e-18, 'zs': 1e-21, 'ys': 1e-24}
+    unitDict = {'My': 1e6*365.25*24*3600, 'ky': 1e3*365.25*24*3600, 'y': 365.25*24*3600, 'd': 24*3600., 'h': 3600., 'm': 60., 's': 1., 'ms': 1e-3, 'us': 1e-6, 'ns': 1e-9, 'ps': 1e-12, 'fs': 1e-15, 'as': 1e-18, 'zs': 1e-21, 'ys': 1e-24}
     data = []
     url = 'https://www-nds.iaea.org/amdc/ame2020/nubase_4.mas20.txt'
     r = requests.get(url).content
@@ -93,13 +93,12 @@ st.set_page_config(page_title=apptitle, page_icon=":eyeglasses:")
 st.title("The Cob(s)web")
 
 st.markdown("""
- Calculate beta spectrum shapes with state of the art methods
+The calculation of beta spectra, now on the web!
+
+State of the art methods as described [here](#citation-and-about).
 """)
 
-st.sidebar.markdown("## Set the decay parameters")
-
-st.sidebar.markdown("""Pulling data from Atomic Mass Evaluation 2020 and Nubase 2020 [link](https://www-nds.iaea.org/amdc/)
-        """)
+st.sidebar.markdown("## Decay parameters")
 
 str_iso = st.sidebar.text_input('Isotope', value='1N')
 z = 0.
@@ -108,7 +107,7 @@ a = 1.
 m = re.search(r'\d+', str_iso)
 if m:
     a = int(m.group(0))
-    z = atoms.index(str(str_iso).replace(m.group(0), '').strip())
+    z = atoms.index(str(str_iso).replace(m.group(0), '').strip().capitalize())
 else:
     st.error('Not a valid isotope name. Expecting something like 6He or 45Ca.')
 
@@ -129,9 +128,9 @@ halflife = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'halflife']
 
 with st.sidebar.expander("Nuclear data"):
     z = st.number_input('Proton number', min_value=0, max_value=120, step=1, value=z, help="Set the proton number of the initial state")
-    a = st.number_input('Mass number', min_value=z, max_value=120, step=1, value=a, help="Set the mass number of the initial state")
-    sl_r = st.number_input('Radius', min_value=0.01, max_value=100., step=0.1, value=approxNuclRadius(z, a), help="Set the rms nuclear radius in fm")
-    sl_halflife = st.number_input('Partial falflife ($$t_{1/2}^{\\beta}$$)', min_value=0., max_value=1e32, value=halflife, step=1e-3, format='%e', help='Enter the partial halflife of the beta decay in seconds to calculate a log ft value')
+    a = st.number_input('Mass number', min_value=z, max_value=300, step=1, value=a, help="Set the mass number of the initial state")
+    sl_r = st.number_input('Radius', min_value=0.005, max_value=100., step=0.1, value=approxNuclRadius(z, a), help="Set the rms nuclear radius in fm")
+    sl_halflife = st.number_input('Partial halflife ($$t_{1/2}^{\\beta}$$)', min_value=0., max_value=1e32, value=halflife, step=1e-3, format='%e', help='Enter the partial halflife of the beta decay in seconds to calculate a log ft value')
 
     r = float(sl_r)*(5/3)**0.5*1e-15/NATURAL_LENGTH
 
@@ -153,10 +152,14 @@ dAc = 0.
 Lambda = 0.
 if beta_type == 'Gamow-Teller' or beta_type == 'Mixed':
     with st.sidebar.expander("Recoil-order matrix elements"):
-        st.write("Specify the values for the recoil-order matrix elements following the notation in Hayen et al. Reviews of Modern Physics 90 (2018) 015008")
+        st.write("Specify the values for the recoil-order matrix elements following the notation in Hayen et al. [Reviews of Modern Physics 90 (2018) 015008](https://journals.aps.org/rmp/abstract/10.1103/RevModPhys.90.015008)")
         bAc = st.number_input('b/Ac', min_value=-100., max_value=100.,value=5.0, step=0.1, help='Weak magnetism according to Holstein. Typical values are around 5.')
         dAc = st.number_input('d/Ac', min_value=-100., max_value=100., value=2., step=0.1, help='Induced tensor according to Holstein. Typical values in {-5, 5}.')
         Lambda = st.number_input(r'$$\Lambda$$', min_value=-100., max_value=100., value=5., step=0.1, help='Induced pseudoscalar according to Hayen et al. Typical values in {-5, 5}.')
+
+st.sidebar.markdown("""Extracting data from [Atomic Mass Evaluation 2020 and Nubase 2020](https://www-nds.iaea.org/amdc/)
+        """)
+st.sidebar.info("Q values derived from AME2020 can differ from [ENSDF/NuDat](https://www.nndc.bnl.gov/nudat3/)", icon="ℹ️")
 
 @st.cache
 def calculateSpectrum(Z, A, R, E0, E_step, beta_type, mixing_ratio=0, bAc=0, dAc=0, Lambda=0):
@@ -192,9 +195,9 @@ def calculateSpectrum(Z, A, R, E0, E_step, beta_type, mixing_ratio=0, bAc=0, dAc
         recGT = sf.recoil_gamow_teller(W, W0, A)
         recCoulGT = sf.recoil_Coulomb_gamow_teller(W, Z, W0, A)
         c = 1
-        b = 5*A*c
-        d = 0
-        L = 0
+        b = bAc*A*c
+        d = dAc*A*c
+        L = Lambda
         CGT = sf.shape_factor_gamow_teller(W, Z, W0, R, A, b, c, d, L)
         rec = 1+(recF-1+mixing_ratio**2*(recGT-1))/norm
         recCoul = 1+(recCoulF-1+mixing_ratio**2*(recCoulGT-1))/norm
@@ -219,21 +222,29 @@ if sl_e0 > 0:
     zeff = z+1 if decay_type == 'Beta-' else -(z-1)
     df = calculateSpectrum(zeff, a, r, sl_e0, sl_e_step, beta_type, mixing_ratio, bAc, dAc, Lambda)
 
-    ftValuePS = np.sum(df['PhaseSpace'])*sl_e_step/ELECTRON_MASS_KEV*halflife
-    ftValueFull = np.sum(df['Spectrum'])*sl_e_step/ELECTRON_MASS_KEV*halflife
-
     initState_str = "$$^{%d}$$%s" % (a, atoms[z])
     finalState_str = "$$^{%d}$$%s" % (a, atoms[abs(zeff)])
 
     st.subheader('Transition info')
 
     st.write("""
-    Current transition information: %s   &rarr;   %s [$$E_0$$ = %.2f keV]
+    Current transition information: %s &nbsp;&nbsp; &rarr; &nbsp;&nbsp; %s :&nbsp;&nbsp; $$E_0$$ = %.2f keV&nbsp; and&nbsp; $$t_{1/2}$$ = %s s
+    """ % (initState_str, finalState_str, sl_e0, 'stable' if halflife == -1 else '%.2e' % halflife))
 
-    Log ft values: 
+    effHalflife = halflife
+
+    if halflife == -1:
+        st.warning("No halflife found. Setting $$t_{1/2}$$ = 1 s for calculating log ft.")
+        effHalflife = 1.
+
+    ftValuePS = np.sum(df['PhaseSpace'])*sl_e_step/ELECTRON_MASS_KEV*effHalflife
+    ftValueFull = np.sum(df['Spectrum'])*sl_e_step/ELECTRON_MASS_KEV*effHalflife
+
+    st.write("""
+    Log ft values: [:question:](#comparative-halflife)
     * Only phase space: %.5f
     * Full calculation: %.5f
-    """ % (initState_str, finalState_str, sl_e0, np.log10(ftValuePS), np.log10(ftValueFull)))
+    """ % (np.log10(ftValuePS), np.log10(ftValueFull)))
 
     st.subheader('Electron spectrum')
 
@@ -276,3 +287,39 @@ if sl_e0 > 0:
             df
 else:
     st.error("Endpoint energy is less than 0. Can't calculate spectrum. Did you mean to change the decay type(beta+/-)?")
+
+st.subheader("Comparative halflife")
+
+st.write("""
+The comparative half-life, or $$ft$$ value, describes the overlap between initial and final states involved in the $$\\beta$$ decay and is defined as follows
+
+$$
+ft = \\frac{K}{G_F^2V_{ud}^2}\\frac{1}{|\langle f | H_{\\beta}(0)|i\\rangle|^2}
+$$
+with $$K = 8120.27648(26) \cdot 10^{-10}$$ GeV$$^{-4}$$s. As the matrix element can vary by several orders of magnitude, it is convenient and conventional to instead report the base 10 logarithm of the $$ft$$ value as was done above.""")
+
+with st.expander("More information"):
+    st.write("""It does so by removing the effects from phase space, better known as the integral of the $$\\beta$$ spectrum or $$f$$ value,
+
+$$
+f = \int_1^{W_0} ~pW(W-W_0)^2 F(Z, W) C(Z, W) \ldots dW
+$$
+where $$W = 1+E_{kin}/m_ec^2 (p = \sqrt{W^2-1})$$ are the $$\\beta$$ particle dimensionless total energy (momentum) using $$m_e=c=\hbar=1$$, and combining it with an experimentally measured half-life, $$t_{1/2}$$. 
+
+Depending on the type of transition, typical values are distributed as shown in the plot below from [these lecture notes](https://link.springer.com/chapter/10.1007/978-3-540-85839-3_4)
+        """)
+
+    st.image("https://www.researchgate.net/profile/Berta-Rubio/publication/225687961/figure/fig4/AS:302550210367490@1449144999109/Numbers-of-known-allowed-upper-panel-and-forbidden-lower-panel-transitions-of.png")
+
+st.subheader("Citation and about")
+
+st.write("""
+The calculation of beta spectra uses thecobs([Github](https://github.com/leenderthayen/thecobs) and [Pypi](https://pypi.org/project/thecobs/)), a python port of the BSG software written in C++ ([Github](https://github.com/leenderthayen/BSG) and [documentation](https://bsg.readthedocs.io/en/latest/)).
+
+Written by Leendert Hayen. If you use these results in a scientific publication, please cite
+
+* L. Hayen et al., [Reviews of Modern Physics 90 (2018) 015008](https://journals.aps.org/rmp/abstract/10.1103/RevModPhys.90.015008)
+* L. Hayen and N. Severijns, [Computer Physics Communications 240 (2019) 152](https://www.sciencedirect.com/science/article/abs/pii/S0010465519300645)
+
+Find me on [Google Scholar](https://scholar.google.com/citations?user=2TlxGBkAAAAJ&hl=en).
+        """)

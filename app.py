@@ -55,7 +55,7 @@ def downloadAME():
 @st.cache
 def downloadNubase():
     names = ['Z', 'A', 'halflife', 'halflifeUnc', 'spinParity']
-    unitDict = {'My': 1e6*365.25*24*3600, 'ky': 1e3*365.25*24*3600, 'y': 365.25*24*3600, 'd': 24*3600., 'h': 3600., 'm': 60., 's': 1., 'ms': 1e-3, 'us': 1e-6, 'ns': 1e-9, 'ps': 1e-12, 'fs': 1e-15, 'as': 1e-18, 'zs': 1e-21, 'ys': 1e-24}
+    unitDict = {'Qy': 1e30*365.25*24*3600, 'Ry': 1e27*365.25*24*3600, 'Yy': 1e24*365.25*24*3600, 'Zy': 1e21*365.25*24*3600, 'Ey': 1e18*365.25*24*3600,'Py': 1e15*365.25*24*3600, 'Ty': 1e12*365.25*24*3600, 'Gy': 1e9*365.25*24*3600, 'My': 1e6*365.25*24*3600, 'ky': 1e3*365.25*24*3600, 'y': 365.25*24*3600, 'd': 24*3600., 'h': 3600., 'm': 60., 's': 1., 'ms': 1e-3, 'us': 1e-6, 'ns': 1e-9, 'ps': 1e-12, 'fs': 1e-15, 'as': 1e-18, 'zs': 1e-21, 'ys': 1e-24}
     data = []
     url = 'https://www-nds.iaea.org/amdc/ame2020/nubase_4.mas20.txt'
     r = requests.get(url).content
@@ -100,7 +100,7 @@ State of the art methods as described [here](#citation-and-about).
 
 st.sidebar.markdown("## Decay parameters")
 
-str_iso = st.sidebar.text_input('Isotope', value='1N')
+str_iso = st.sidebar.text_input('Isotope', value='1N', help="Enter the initial state as an isotope name, like 19Ne or 63Ni")
 z = 0.
 a = 1.
 
@@ -116,41 +116,60 @@ decay_type = st.sidebar.selectbox('Type of beta transition',
 
 halflife = 1.
 Qvalue = 1000.
+spinParityInit = '1/2+'
+spinParityFinal = '1/2+'
 dfAME = downloadAME()
 dfNubase = downloadNubase()
 
+halflife = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'halflife'].values[0]
+spinParityInit = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'spinParity'].values[0]
+
 if decay_type == 'Beta-':
     Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z+1)) & (dfAME['A'] == a), 'mass'].values[0]
+    spinParityFinal = dfNubase.loc[(dfNubase['Z'] == z+1) & (dfNubase['A'] == a), 'spinParity'].values[0]
 else:
     Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z-1)) & (dfAME['A'] == a), 'mass'].values[0]-2*ELECTRON_MASS_KEV
-
-halflife = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'halflife'].values[0]
+    spinParityFinal = dfNubase.loc[(dfNubase['Z'] == z-1) & (dfNubase['A'] == a), 'spinParity'].values[0]
 
 with st.sidebar.expander("Nuclear data"):
     z = st.number_input('Proton number', min_value=0, max_value=120, step=1, value=z, help="Set the proton number of the initial state")
     a = st.number_input('Mass number', min_value=z, max_value=300, step=1, value=a, help="Set the mass number of the initial state")
     sl_r = st.number_input('Radius', min_value=0.005, max_value=100., step=0.1, value=approxNuclRadius(z, a), help="Set the rms nuclear radius in fm")
     sl_halflife = st.number_input('Partial halflife ($$t_{1/2}^{\\beta}$$)', min_value=0., max_value=1e32, value=halflife, step=1e-3, format='%e', help='Enter the partial halflife of the beta decay in seconds to calculate a log ft value')
+    str_spinParityInit = st.text_input('Initial spin-parity', value=spinParityInit, help="Define the spin-parity of the initial state, like 1/2+, 7/2-, or 2+")
+    str_spinParityFinal = st.text_input('Final spin-parity', value=spinParityFinal, help="Define the spin-parity of the final state, like 1/2+, 7/2-, or 2+")
 
     r = float(sl_r)*(5/3)**0.5*1e-15/NATURAL_LENGTH
+    spinParityInit = str(str_spinParityInit)
+    spinParityFinal = str(str_spinParityFinal)
 
     #str_iso.value = "%d%s" % (a, atoms[z])
 
 sl_e0 = st.sidebar.number_input('Endpoint energy', min_value=0., max_value=20e3, value=Qvalue, step=1., help="Set the endpoint energy in keV")
 sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=1., step=1., help="Set the step energy in keV")
 
-beta_type = st.sidebar.selectbox('Type of allowed transition',
-                                    ['Gamow-Teller', 'Fermi', 'Mixed'])
+dJ, f, u = fu.determineForbiddenness(spinParityInit, spinParityFinal)
+transIndex = 0
+if f != 0:
+  transIndex += f+2
+
+beta_type = st.sidebar.selectbox('Type of transition',
+        ['A: Gamow-Teller', 'A: Fermi', 'A: Mixed', '1FU', '2FU', '3FU'], index=transIndex)
+
+if 'FU' in beta_type:
+    f = int(beta_type[0])
+    dJ = f+1
+    u = True
 
 mixing_ratio = 0.
-if beta_type == 'Mixed':
+if beta_type == 'A: Mixed':
     mixing_ratio_sl = st.sidebar.slider('Mixing ratio', -3., 3., -2.22, help='Ratio of Gamow-Teller and Fermi matrix elements for a mixed decay')
     mixing_ratio = float(mixing_ratio_sl)
 
 bAc = 0.
 dAc = 0.
 Lambda = 0.
-if beta_type == 'Gamow-Teller' or beta_type == 'Mixed':
+if beta_type == 'A: Gamow-Teller' or beta_type == 'A: Mixed':
     with st.sidebar.expander("Recoil-order matrix elements"):
         st.write("Specify the values for the recoil-order matrix elements following the notation in Hayen et al. [Reviews of Modern Physics 90 (2018) 015008](https://journals.aps.org/rmp/abstract/10.1103/RevModPhys.90.015008)")
         bAc = st.number_input('b/Ac', min_value=-100., max_value=100.,value=5.0, step=0.1, help='Weak magnetism according to Holstein. Typical values are around 5.')
@@ -162,7 +181,7 @@ st.sidebar.markdown("""Extracting data from [Atomic Mass Evaluation 2020 and Nub
 st.sidebar.info("Q values derived from AME2020 can differ from [ENSDF/NuDat](https://www.nndc.bnl.gov/nudat3/)", icon="ℹ️")
 
 @st.cache
-def calculateSpectrum(Z, A, R, E0, E_step, beta_type, mixing_ratio=0, bAc=0, dAc=0, Lambda=0):
+def calculateSpectrum(Z, A, R, E0, E_step, dJ, beta_type, mixing_ratio=0, bAc=0, dAc=0, Lambda=0):
     E = np.arange(1., E0, E_step)
 
     W0 = 1 + E0/ELECTRON_MASS_KEV
@@ -174,12 +193,15 @@ def calculateSpectrum(Z, A, R, E0, E_step, beta_type, mixing_ratio=0, bAc=0, dAc
     l0 = sf.finite_size_L0(W, Z, R)
     u = sf.finite_size_U_fermi(W, Z)
     rc = sf.radiative_correction(W, Z, W0, R)
+    rec = np.ones(len(E))
+    recCoul = np.ones(len(E))
+    C = np.ones(len(E))
 
-    if beta_type == 'Fermi':
+    if beta_type == 'A: Fermi':
         rec = sf.recoil_fermi(W, W0, A)
         recCoul = sf.recoil_Coulomb_fermi(W, Z, W0, A)
         C = sf.shape_factor_fermi(W, Z, W0, R)
-    elif beta_type == 'Gamow-Teller':
+    elif beta_type == 'A: Gamow-Teller':
         rec = sf.recoil_gamow_teller(W, W0, A)
         recCoul = sf.recoil_Coulomb_gamow_teller(W, Z, W0, A)
         c = 1
@@ -187,7 +209,7 @@ def calculateSpectrum(Z, A, R, E0, E_step, beta_type, mixing_ratio=0, bAc=0, dAc
         d = dAc*A*c
         L = Lambda
         C = sf.shape_factor_gamow_teller(W, Z, W0, R, A, b, c, d, L)
-    elif beta_type == 'Mixed':
+    elif beta_type == 'A: Mixed':
         norm = 1+mixing_ratio**2
         recF = sf.recoil_fermi(W, W0, A)
         recCoulF = sf.recoil_Coulomb_fermi(W, Z, W0, A)
@@ -202,6 +224,8 @@ def calculateSpectrum(Z, A, R, E0, E_step, beta_type, mixing_ratio=0, bAc=0, dAc
         rec = 1+(recF-1+mixing_ratio**2*(recGT-1))/norm
         recCoul = 1+(recCoulF-1+mixing_ratio**2*(recCoulGT-1))/norm
         C = 1+(CF-1 + mixing_ratio**2*(CGT-1))/norm
+    elif 'FU' in beta_type:
+        C = sf.shape_factor_unique_forbidden(W, dJ, W0, Z, R)
     l = thecobs.Screening.screening_potential(Z)
     s = sf.atomic_screening(W, Z, R, l)
 
@@ -220,10 +244,10 @@ def convert_df(df):
 
 if sl_e0 > 0:
     zeff = z+1 if decay_type == 'Beta-' else -(z-1)
-    df = calculateSpectrum(zeff, a, r, sl_e0, sl_e_step, beta_type, mixing_ratio, bAc, dAc, Lambda)
+    df = calculateSpectrum(zeff, a, r, sl_e0, sl_e_step, dJ, beta_type, mixing_ratio, bAc, dAc, Lambda)
 
-    initState_str = "$$^{%d}$$%s" % (a, atoms[z])
-    finalState_str = "$$^{%d}$$%s" % (a, atoms[abs(zeff)])
+    initState_str = "$$^{%d}$$%s [%s]" % (a, atoms[z], spinParityInit)
+    finalState_str = "$$^{%d}$$%s [%s]" % (a, atoms[abs(zeff)], spinParityFinal)
 
     st.subheader('Transition info')
 

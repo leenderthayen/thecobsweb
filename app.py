@@ -279,20 +279,23 @@ if sl_e0 > 0:
         effHalflife = 1.
 
     ftValuePS = np.sum(df['PhaseSpace'])*sl_e_step/ELECTRON_MASS_KEV*effHalflife
+    ftValueFPS = np.sum(df['PhaseSpace']*df['FermiFunction'])*sl_e_step/ELECTRON_MASS_KEV*effHalflife
     ftValueFull = np.sum(df['Spectrum'])*sl_e_step/ELECTRON_MASS_KEV*effHalflife
 
     st.write("""
     Log ft values: [:question:](#comparative-halflife)
     * Only phase space: %.5f
+    * With Fermi function: %.5f
     * Full calculation: %.5f
-    """ % (np.log10(ftValuePS), np.log10(ftValueFull)))
+    """ % (np.log10(ftValuePS), np.log10(ftValueFPS), np.log10(ftValueFull)))
 
     st.subheader('Electron spectrum')
 
     p = figure(title='Beta spectrum', x_axis_label='Kinetic energy [keV]', y_axis_label='dN/dE', y_range=DataRange1d(only_visible=True))
 
-    p.line(df['Energy'], df['Spectrum'], legend_label='All corrections', line_width=2, muted_alpha=0.2, color=Category10[3][0])
-    p.line(df['Energy'], df['PhaseSpace'], legend_label='Phase Space', line_width=2, muted_alpha=0.2, color=Category10[3][1])
+    p.line(df['Energy'], df['Spectrum'], legend_label='All corrections', line_width=2, muted_alpha=0.2, color=Category10[4][0])
+    p.line(df['Energy'], df['PhaseSpace']*df['FermiFunction'], legend_label='Fermi function', line_width=2, muted_alpha=0.2, color=Category10[4][1])
+    p.line(df['Energy'], df['PhaseSpace'], legend_label='Phase Space', line_width=2, muted_alpha=0.2, color=Category10[4][3])
 
     p.legend.click_policy = "hide"
 

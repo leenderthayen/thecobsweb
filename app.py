@@ -54,7 +54,7 @@ def downloadAME():
 
 @st.cache
 def downloadNubase():
-    names = ['Z', 'A', 'halflife', 'halflifeUnc', 'spinParity']
+    names = ['Z', 'A', 'halflife', 'halflifeUnc', 'spinParity', 'branchingB-', 'branchingB+']
     unitDict = {'Qy': 1e30*365.25*24*3600, 'Ry': 1e27*365.25*24*3600, 'Yy': 1e24*365.25*24*3600, 'Zy': 1e21*365.25*24*3600, 'Ey': 1e18*365.25*24*3600,'Py': 1e15*365.25*24*3600, 'Ty': 1e12*365.25*24*3600, 'Gy': 1e9*365.25*24*3600, 'My': 1e6*365.25*24*3600, 'ky': 1e3*365.25*24*3600, 'y': 365.25*24*3600, 'd': 24*3600., 'h': 3600., 'm': 60., 's': 1., 'ms': 1e-3, 'us': 1e-6, 'ns': 1e-9, 'ps': 1e-12, 'fs': 1e-15, 'as': 1e-18, 'zs': 1e-21, 'ys': 1e-24}
     data = []
     url = 'https://www-nds.iaea.org/amdc/ame2020/nubase_4.mas20.txt'
@@ -76,14 +76,26 @@ def downloadNubase():
             halflifeUnit = line[78:80].strip()
             halflifeUnc = line[81:88]
             spinParity = line[88:102].split(' ')[0].replace('#', '').replace('*', '')
+            branches = line[119:209]
+            branchingRatioBm = 100.
+            branchingRatioBp = 100.
             try:
                 halflife = float(halflife)*unitDict[halflifeUnit]
                 halflifeUnc = float(halflifeUnc)*unitDict[halflifeUnit]
             except:
                 halflife = -1.
                 halflifeUnc = 0.
+            try:
+                m = re.search(r'B-=\d+[\.\d+]*', branches)
+                if m:
+                    branchingRatioBm = float(m.group(0).split('B-=')[1])
+                m = re.search(r'B+=\d+[\.\d+]*', branches)
+                if m:
+                    branchingRatioBp = float(m.group(0).split('B+=')[1])
+            except:
+                pass
 
-            data.append([z, a, halflife, halflifeUnc, spinParity])
+            data.append([z, a, halflife, halflifeUnc, spinParity, branchingRatioBm, branchingRatioBp])
     return pd.DataFrame(data, columns=names)
 
 apptitle = "The cob(s)web"
@@ -115,6 +127,7 @@ decay_type = st.sidebar.selectbox('Type of beta transition',
                                     ['Beta-', 'Beta+'])
 
 halflife = 1.
+branchingRatio = 100.
 Qvalue = 1000.
 spinParityInit = '1/2+'
 spinParityFinal = '1/2+'
@@ -127,26 +140,30 @@ spinParityInit = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'spin
 if decay_type == 'Beta-':
     Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z+1)) & (dfAME['A'] == a), 'mass'].values[0]
     spinParityFinal = dfNubase.loc[(dfNubase['Z'] == z+1) & (dfNubase['A'] == a), 'spinParity'].values[0]
+    branchingRatio = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'branchingB-'].values[0]
 else:
     Qvalue = dfAME.loc[(dfAME['Z'] == z) & (dfAME['A'] == a), 'mass'].values[0]-dfAME.loc[(dfAME['Z'] == (z-1)) & (dfAME['A'] == a), 'mass'].values[0]-2*ELECTRON_MASS_KEV
     spinParityFinal = dfNubase.loc[(dfNubase['Z'] == z-1) & (dfNubase['A'] == a), 'spinParity'].values[0]
+    branchingRatio = dfNubase.loc[(dfNubase['Z'] == z) & (dfNubase['A'] == a), 'branchingB+'].values[0]
 
 with st.sidebar.expander("Nuclear data"):
     z = st.number_input('Proton number', min_value=0, max_value=120, step=1, value=z, help="Set the proton number of the initial state")
     a = st.number_input('Mass number', min_value=z, max_value=300, step=1, value=a, help="Set the mass number of the initial state")
     sl_r = st.number_input('Radius', min_value=0.005, max_value=100., step=0.1, value=approxNuclRadius(z, a), help="Set the rms nuclear radius in fm")
-    sl_halflife = st.number_input('Partial halflife ($$t_{1/2}^{\\beta}$$)', min_value=0., max_value=1e32, value=halflife, step=1e-3, format='%e', help='Enter the partial halflife of the beta decay in seconds to calculate a log ft value')
+    sl_halflife = st.number_input('Halflife ($$t_{1/2}^{\\beta}$$)', min_value=0., max_value=1e32, value=halflife, step=1e-3, format='%e', help='Enter the halflife of the initial state in seconds to calculate a log ft value')
+    sl_branching = st.number_input('Branching ratio (%)', min_value=1e-3, max_value=100., value=branchingRatio, step=1., help="Enter the beta decay branching ratio as a percentage")
     str_spinParityInit = st.text_input('Initial spin-parity', value=spinParityInit, help="Define the spin-parity of the initial state, like 1/2+, 7/2-, or 2+")
     str_spinParityFinal = st.text_input('Final spin-parity', value=spinParityFinal, help="Define the spin-parity of the final state, like 1/2+, 7/2-, or 2+")
 
     r = float(sl_r)*(5/3)**0.5*1e-15/NATURAL_LENGTH
     spinParityInit = str(str_spinParityInit)
     spinParityFinal = str(str_spinParityFinal)
+    branchingRatio = float(sl_branching)
 
     #str_iso.value = "%d%s" % (a, atoms[z])
 
 sl_e0 = st.sidebar.number_input('Endpoint energy', min_value=0., max_value=20e3, value=Qvalue, step=1., help="Set the endpoint energy in keV")
-sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=1., step=1., help="Set the step energy in keV")
+sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=1.1, step=1., help="Set the step energy in keV")
 
 dJ, f, u = fu.determineForbiddenness(spinParityInit, spinParityFinal)
 transIndex = 0
@@ -154,7 +171,7 @@ if f != 0:
   transIndex += f+2
 
 beta_type = st.sidebar.selectbox('Type of transition',
-        ['A: Gamow-Teller', 'A: Fermi', 'A: Mixed', '1FU', '2FU', '3FU'], index=transIndex)
+        ['A: Gamow-Teller', 'A: Fermi', 'A: Mixed', '1FU', '2FU', '3FU'], index=transIndex, help="Choose between the different types of allowed (A) or uniquely n-th forbidden (nFU) transitions.")
 
 if 'FU' in beta_type:
     f = int(beta_type[0])
@@ -252,12 +269,12 @@ if sl_e0 > 0:
     st.subheader('Transition info')
 
     st.write("""
-    Current transition information: %s &nbsp;&nbsp; &rarr; &nbsp;&nbsp; %s :&nbsp;&nbsp; $$E_0$$ = %.2f keV&nbsp; and&nbsp; $$t_{1/2}$$ = %s s
-    """ % (initState_str, finalState_str, sl_e0, 'stable' if halflife == -1 else '%.2e' % halflife))
+    Current transition information: %s &nbsp;&nbsp; &rarr; &nbsp;&nbsp; %s &nbsp;&nbsp; \n\r$$E_0$$ = %.2f keV &nbsp;&nbsp; BR=%.2f %s &nbsp;&nbsp; $$t_{1/2}$$ = %s s
+    """ % (initState_str, finalState_str, sl_e0, branchingRatio, '(%)', 'stable' if halflife == -1 else '%.2e' % halflife))
 
-    effHalflife = halflife
+    effHalflife = halflife/(branchingRatio/100.)
 
-    if halflife == -1:
+    if halflife < 0:
         st.warning("No halflife found. Setting $$t_{1/2}$$ = 1 s for calculating log ft.")
         effHalflife = 1.
 
@@ -272,12 +289,12 @@ if sl_e0 > 0:
 
     st.subheader('Electron spectrum')
 
-    p = figure(title="Electron spectrum", x_axis_label='Kinetic energy [keV]', y_axis_label='dN/dE')
+    p = figure(title='Beta spectrum', x_axis_label='Kinetic energy [keV]', y_axis_label='dN/dE', y_range=DataRange1d(only_visible=True))
 
     p.line(df['Energy'], df['Spectrum'], legend_label='All corrections', line_width=2, muted_alpha=0.2, color=Category10[3][0])
     p.line(df['Energy'], df['PhaseSpace'], legend_label='Phase Space', line_width=2, muted_alpha=0.2, color=Category10[3][1])
 
-    p.legend.click_policy = "mute"
+    p.legend.click_policy = "hide"
 
     st.bokeh_chart(p, use_container_width=True)
 

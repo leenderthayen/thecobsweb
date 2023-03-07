@@ -7,6 +7,7 @@ import thecobs.SpectralFunctions as sf
 from thecobs.Constants import *
 import thecobs.Functions as fu
 import thecobs.Screening
+import thecobs.Generator as g
 
 from bokeh.models import DataRange1d
 from bokeh.plotting import figure
@@ -163,7 +164,7 @@ with st.sidebar.expander("Nuclear data"):
     #str_iso.value = "%d%s" % (a, atoms[z])
 
 sl_e0 = st.sidebar.number_input('Endpoint energy', min_value=0., max_value=20e3, value=Qvalue, step=1., help="Set the endpoint energy in keV")
-sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=1.1, step=1., help="Set the step energy in keV")
+sl_e_step = st.sidebar.number_input('Energy step', min_value=0.1, max_value=1000., value=0.1, step=1., help="Set the step energy in keV")
 
 dJ, f, u = fu.determineForbiddenness(spinParityInit, spinParityFinal)
 transIndex = 0
@@ -171,7 +172,7 @@ if f != 0:
   transIndex += f+2
 
 beta_type = st.sidebar.selectbox('Type of transition',
-        ['A: Gamow-Teller', 'A: Fermi', 'A: Mixed', '1FU', '2FU', '3FU'], index=transIndex, help="Choose between the different types of allowed (A) or uniquely n-th forbidden (nFU) transitions.")
+        ['A: Gamow-Teller', 'A: Fermi', 'A: Mixed', '1FU', '2FU', '3FU', '4FU'], index=transIndex, help="Choose between the different types of allowed (A) or uniquely n-th forbidden (nFU) transitions.")
 
 if 'FU' in beta_type:
     f = int(beta_type[0])
@@ -195,7 +196,7 @@ if beta_type == 'A: Gamow-Teller' or beta_type == 'A: Mixed':
 
 st.sidebar.markdown("""Extracting data from [Atomic Mass Evaluation 2020 and Nubase 2020](https://www-nds.iaea.org/amdc/)
         """)
-st.sidebar.info("Q values derived from AME2020 can differ from [ENSDF/NuDat](https://www.nndc.bnl.gov/nudat3/)", icon="ℹ️")
+st.sidebar.info("Q values derived from AME2020 neglect electron binding energy differences and can differ from [ENSDF/NuDat](https://www.nndc.bnl.gov/nudat3/)", icon="ℹ️")
 
 @st.cache
 def calculateSpectrum(Z, A, R, E0, E_step, dJ, beta_type, mixing_ratio=0, bAc=0, dAc=0, Lambda=0):
@@ -245,12 +246,16 @@ def calculateSpectrum(Z, A, R, E0, E_step, dJ, beta_type, mixing_ratio=0, bAc=0,
         C = sf.shape_factor_unique_forbidden(W, dJ, W0, Z, R)
     l = thecobs.Screening.screening_potential(Z)
     s = sf.atomic_screening(W, Z, R, l)
+    X = np.ones(len(W))
+    if Z > 0:
+        exParsSim = g.getExchangeParamsSimkovic(Z)
+        X = sf.atomic_exchange_simkovic(W, exParsSim)
 
-    sp = ph*f*l0*u*rc*rec*recCoul*C*s
+    sp = ph*f*l0*u*rc*rec*recCoul*C*s*X
 
-    comb = np.stack((E, W, sp, ph, f, l0, rc, C, s, u, rec, recCoul), axis=1)
+    comb = np.stack((E, W, sp, ph, f, l0, rc, C, s, X, u, rec, recCoul), axis=1)
 
-    df = pd.DataFrame(comb, columns = ['Energy', 'W', 'Spectrum', 'PhaseSpace', 'FermiFunction', 'L0', 'RadiativeCorrections', 'ShapeFactor', 'Screening', 'U', 'Recoil', 'CoulombRecoil'])
+    df = pd.DataFrame(comb, columns = ['Energy', 'W', 'Spectrum', 'PhaseSpace', 'FermiFunction', 'L0', 'RadiativeCorrections', 'ShapeFactor', 'Screening', 'Exchange', 'U', 'Recoil', 'CoulombRecoil'])
 
     return df
 
@@ -291,11 +296,18 @@ if sl_e0 > 0:
 
     st.subheader('Electron spectrum')
 
+    normPS = normFPS = normFull = 1.
+
+    if st.checkbox('Show normalized spectra'):
+        normPS = 1./(ftValuePS/effHalflife)
+        normFPS = 1./(ftValueFPS/effHalflife)
+        normFull = 1./(ftValueFull/effHalflife)
+
     p = figure(title='Beta spectrum', x_axis_label='Kinetic energy [keV]', y_axis_label='dN/dE', y_range=DataRange1d(only_visible=True))
 
-    p.line(df['Energy'], df['Spectrum'], legend_label='All corrections', line_width=2, muted_alpha=0.2, color=Category10[4][0])
-    p.line(df['Energy'], df['PhaseSpace']*df['FermiFunction'], legend_label='Fermi function', line_width=2, muted_alpha=0.2, color=Category10[4][1])
-    p.line(df['Energy'], df['PhaseSpace'], legend_label='Phase Space', line_width=2, muted_alpha=0.2, color=Category10[4][3])
+    p.line(df['Energy'], df['Spectrum']*normFull, legend_label='All corrections', line_width=2, muted_alpha=0.2, color=Category10[4][0])
+    p.line(df['Energy'], df['PhaseSpace']*df['FermiFunction']*normFPS, legend_label='Fermi function', line_width=2, muted_alpha=0.2, color=Category10[4][1])
+    p.line(df['Energy'], df['PhaseSpace']*normPS, legend_label='Phase Space', line_width=2, muted_alpha=0.2, color=Category10[4][3])
 
     p.legend.click_policy = "hide"
 
@@ -364,6 +376,7 @@ Written by Leendert Hayen. If you use these results in a scientific publication,
 
 * L. Hayen et al., [Reviews of Modern Physics 90 (2018) 015008](https://journals.aps.org/rmp/abstract/10.1103/RevModPhys.90.015008)
 * L. Hayen and N. Severijns, [Computer Physics Communications 240 (2019) 152](https://www.sciencedirect.com/science/article/abs/pii/S0010465519300645)
+* O. Nitescu et al., [Physical Review C 107 (2023) 025501](https://journals.aps.org/prc/pdf/10.1103/PhysRevC.107.025501)
 
 Find me on [Google Scholar](https://scholar.google.com/citations?user=2TlxGBkAAAAJ&hl=en).
         """)

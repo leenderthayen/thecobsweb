@@ -294,19 +294,21 @@ if sl_e0 > 0:
     avgFPS = calculateAverageEnergy(df['W'], df['PhaseSpace']*df['FermiFunction'])
     avgFull = calculateAverageEnergy(df['W'], df['Spectrum'])
 
-    st.write("""
-    Log ft values: [:question:](#comparative-halflife)
-    * Only phase space: %.5f
-    * With Fermi function: %.5f
-    * Full calculation: %.5f
-    """ % (np.log10(ftValuePS), np.log10(ftValueFPS), np.log10(ftValueFull)))
+    with st.expander("Derived quantities"):
 
-    st.write("""
-    Average kinetic energies:
-    * Only phase space: %.2f keV
-    * With Fermi function: %.2f keV
-    * Full calculation: %.2f keV
-    """ % (avgPS, avgFPS, avgFull))
+        st.write("""
+        Log ft values: [:question:](#comparative-halflife)
+        * Only phase space: %.5f
+        * With Fermi function: %.5f
+        * Full calculation: %.5f
+        """ % (np.log10(ftValuePS), np.log10(ftValueFPS), np.log10(ftValueFull)))
+
+        st.write("""
+        Average kinetic energies:
+        * Only phase space: %.2f keV
+        * With Fermi function: %.2f keV
+        * Full calculation: %.2f keV
+        """ % (avgPS, avgFPS, avgFull))
 
     st.subheader('Electron spectrum')
 

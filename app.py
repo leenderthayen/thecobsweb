@@ -172,7 +172,7 @@ if f != 0:
   transIndex += f+2
 
 beta_type = st.sidebar.selectbox('Type of transition',
-        ['A: Gamow-Teller', 'A: Fermi', 'A: Mixed', '1FU', '2FU', '3FU', '4FU'], index=transIndex, help="Choose between the different types of allowed (A) or uniquely n-th forbidden (nFU) transitions.")
+        ['A: Gamow-Teller', 'A: Fermi', 'A: Mixed', '1FU', '2FU', '3FU', '4FU', '5FU', '6FU', '7FU'], index=transIndex, help="Choose between the different types of allowed (A) or uniquely n-th forbidden (nFU) transitions.")
 
 if 'FU' in beta_type:
     f = int(beta_type[0])
@@ -259,6 +259,9 @@ def calculateSpectrum(Z, A, R, E0, E_step, dJ, beta_type, mixing_ratio=0, bAc=0,
 
     return df
 
+def calculateAverageEnergy(W, sp):
+    return np.sum(sp*(W-1)*ELECTRON_MASS_KEV)/np.sum(sp)
+
 @st.cache
 def convert_df(df):
     # IMPORTANT: Cache the conversion to prevent computation on every rerun
@@ -287,12 +290,23 @@ if sl_e0 > 0:
     ftValueFPS = np.sum(df['PhaseSpace']*df['FermiFunction'])*sl_e_step/ELECTRON_MASS_KEV*effHalflife
     ftValueFull = np.sum(df['Spectrum'])*sl_e_step/ELECTRON_MASS_KEV*effHalflife
 
+    avgPS = calculateAverageEnergy(df['W'], df['PhaseSpace'])
+    avgFPS = calculateAverageEnergy(df['W'], df['PhaseSpace']*df['FermiFunction'])
+    avgFull = calculateAverageEnergy(df['W'], df['Spectrum'])
+
     st.write("""
     Log ft values: [:question:](#comparative-halflife)
     * Only phase space: %.5f
     * With Fermi function: %.5f
     * Full calculation: %.5f
     """ % (np.log10(ftValuePS), np.log10(ftValueFPS), np.log10(ftValueFull)))
+
+    st.write("""
+    Average kinetic energies:
+    * Only phase space: %.2f keV
+    * With Fermi function: %.2f keV
+    * Full calculation: %.2f keV
+    """ % (avgPS, avgFPS, avgFull))
 
     st.subheader('Electron spectrum')
 

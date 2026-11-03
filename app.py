@@ -348,7 +348,7 @@ if sl_e0 > 0:
     # Prepare metadata for JSON export
     metadata = {
         "W0": float(df["W"].max()),
-        "E0": float(sl_e0)
+        "E0": float(sl_e0),
         "E_step": float(sl_e_step),
         "Z": int(z),
         "Z_eff": float(zeff),

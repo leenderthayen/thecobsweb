@@ -363,7 +363,7 @@ if sl_e0 > 0:
     if "mix" in beta_type.lower():
         metadata["mixing_ratio"] = float(mixing_ratio)
 
-    json_data = convert_json(df, metadata)
+    json_data = convert_df_to_json(df, metadata)
     st.download_button(
         label="Download data as JSON",
         data=json_data,

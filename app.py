@@ -1,5 +1,6 @@
 import streamlit as st
 import csv
+import json
 import numpy as np
 import pandas as pd
 import re
@@ -263,7 +264,13 @@ def calculateAverageEnergy(W, sp):
     return np.sum(sp*(W-1)*ELECTRON_MASS_KEV)/np.sum(sp)
 
 @st.cache
-def convert_df(df):
+def convert_df_to_json(df, metadata):
+    json_dict = metadata.copy()
+    json_dict["cobs_df"] = df.to_dict()
+    return json.dumps(json_dict, indent = 4).encode("utf-8")
+
+@st.cache
+def convert_df_to_csv(df):
     # IMPORTANT: Cache the conversion to prevent computation on every rerun
     return df.to_csv(index=False).encode('utf-8')
 
@@ -329,7 +336,7 @@ if sl_e0 > 0:
 
     st.bokeh_chart(p, use_container_width=True)
 
-    csv = convert_df(df)
+    csv = convert_df_to_csv(df)
 
     st.download_button(
         label="Download data as CSV",
@@ -337,6 +344,33 @@ if sl_e0 > 0:
         file_name='spectrum.csv',
         mime='text/csv',
     )
+
+    # Prepare metadata for JSON export
+    metadata = {
+        "W0": float(df["W"].max()),
+        "E0": float(sl_e0),
+        "E_step": float(sl_e_step),
+        "Z": int(z),
+        "Z_eff": float(zeff),
+        "A": int(a),
+        "beta type": beta_type,
+        "decay_type": decay_type,
+        "R": float(sl_r),
+        "bAc": float(bAc),
+        "dAc": float(dAc),
+        "Lambda": float(Lambda),
+    }
+    if "mix" in beta_type.lower():
+        metadata["mixing_ratio"] = float(mixing_ratio)
+
+    json_data = convert_df_to_json(df, metadata)
+    st.download_button(
+        label="Download data as JSON",
+        data=json_data,
+        file_name="spectrum.json",
+        mime="application/json",
+    )
+
 
     # -- Notes on whitening
     with st.expander("More details"):
